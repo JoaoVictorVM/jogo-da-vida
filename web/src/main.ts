@@ -1,5 +1,6 @@
 import { FiniteGridEngine } from './engine';
 import { Camera, CanvasInputController, CanvasRenderer, RenderSettings } from './rendering';
+import { SimulationController, SimulationControlsView } from './simulation';
 
 const DEFAULT_GRID_DIMENSIONS = { width: 100, height: 100 };
 
@@ -30,6 +31,12 @@ function bootstrap(): void {
   const renderer = new CanvasRenderer(ctx, settings);
 
   new CanvasInputController(canvas, camera);
+
+  const controlsContainer = document.getElementById('simulation-controls');
+  if (controlsContainer === null) {
+    throw new Error('Elemento #simulation-controls não encontrado');
+  }
+  new SimulationControlsView(controlsContainer, new SimulationController(engine));
 
   resizeCanvasToViewport(canvas, camera);
   camera.fitToFiniteGrid(DEFAULT_GRID_DIMENSIONS);

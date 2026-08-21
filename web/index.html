@@ -13,6 +13,41 @@
         background: #000000;
       }
 
+      .simulation-controls {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: rgba(20, 20, 20, 0.85);
+        color: #ffffff;
+        font-family: system-ui, sans-serif;
+      }
+
+      .simulation-controls button {
+        width: 36px;
+        height: 36px;
+        border: none;
+        border-radius: 50%;
+        background: #2f2f2f;
+        color: #ffffff;
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      .simulation-controls button:hover {
+        background: #444444;
+      }
+
+      .simulation-controls__speed-value {
+        min-width: 62px;
+        font-size: 13px;
+      }
+
       #game-canvas {
         display: block;
         width: 100vw;
@@ -23,6 +58,7 @@
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
+    <div id="simulation-controls"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
