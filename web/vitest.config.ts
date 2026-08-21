@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'jsdom',
     coverage: {
       provider: 'v8',
-      include: ['src/engine/**', 'src/rendering/**'],
+      include: ['src/engine/**', 'src/rendering/**', 'src/simulation/**'],
       reporter: ['text', 'html'],
       thresholds: {
         lines: 90,
