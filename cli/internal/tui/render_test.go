@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/camera"
+	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/controls"
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/engine"
 )
 
@@ -125,8 +126,9 @@ func TestStatusLine_ShowsCurrentCoordinatesAndZoomLevel(t *testing.T) {
 	cam := camera.NewCamera()
 	cam.Move(12, -7)
 	cam.ZoomIn()
+	ctrl := controls.NewControls(engine.NewEngine())
 
-	line := Line(cam, 80)
+	line := Line(cam, ctrl, 120)
 
 	if !strings.Contains(line, "(12, -7)") {
 		t.Fatalf("esperava as coordenadas na status line, obteve %q", line)
@@ -134,18 +136,35 @@ func TestStatusLine_ShowsCurrentCoordinatesAndZoomLevel(t *testing.T) {
 	if !strings.Contains(line, "zoom 3/4") {
 		t.Fatalf("esperava o nível de zoom na status line, obteve %q", line)
 	}
-	if got := len([]rune(line)); got != 80 {
-		t.Fatalf("esperava status line com 80 colunas, obteve %d", got)
+	if got := len([]rune(line)); got != 120 {
+		t.Fatalf("esperava status line com 120 colunas, obteve %d", got)
+	}
+}
+
+func TestStatusLine_ShowsPlayStateAndSpeed(t *testing.T) {
+	cam := camera.NewCamera()
+	ctrl := controls.NewControls(engine.NewEngine())
+
+	if line := Line(cam, ctrl, 120); !strings.Contains(line, "pausado 5 ger/s") {
+		t.Fatalf("esperava estado pausado e velocidade na status line, obteve %q", line)
+	}
+
+	ctrl.Play()
+	ctrl.IncreaseSpeed()
+
+	if line := Line(cam, ctrl, 120); !strings.Contains(line, "tocando 6 ger/s") {
+		t.Fatalf("esperava estado tocando e nova velocidade, obteve %q", line)
 	}
 }
 
 func TestStatusLine_TruncatesAndHandlesEmptyWidth(t *testing.T) {
 	cam := camera.NewCamera()
+	ctrl := controls.NewControls(engine.NewEngine())
 
-	if got := len([]rune(Line(cam, 10))); got != 10 {
+	if got := len([]rune(Line(cam, ctrl, 10))); got != 10 {
 		t.Fatalf("esperava status line truncada em 10 colunas, obteve %d", got)
 	}
-	if got := Line(cam, 0); got != "" {
+	if got := Line(cam, ctrl, 0); got != "" {
 		t.Fatalf("esperava status line vazia, obteve %q", got)
 	}
 }
