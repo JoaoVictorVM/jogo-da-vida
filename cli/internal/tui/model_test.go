@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/camera"
+	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/controls"
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/engine"
 )
 
@@ -29,7 +30,8 @@ func keyMsg(key string) tea.KeyMsg {
 }
 
 func newTestModel() Model {
-	return NewModel(engine.NewEngine(), camera.NewCamera())
+	eng := engine.NewEngine()
+	return NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
 }
 
 func send(m Model, msg tea.Msg) (Model, tea.Cmd) {
@@ -146,7 +148,7 @@ func TestUpdate_QuitKeys_ReturnQuitCommand(t *testing.T) {
 
 func TestView_ReflectsEngineStateChangeOnNextFrame(t *testing.T) {
 	eng := engine.NewEngine()
-	m := NewModel(eng, camera.NewCamera())
+	m := NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
 
 	before := m.View()
 	if strings.Contains(before, AliveGlyph) {
@@ -182,11 +184,160 @@ func TestView_AlwaysEndsWithTheStatusLine(t *testing.T) {
 
 func TestModel_ExposesInjectedEngine(t *testing.T) {
 	eng := engine.NewEngine()
-	m := NewModel(eng, camera.NewCamera())
+	m := NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
 
 	m.Engine().SetCell(1, 1, true)
 
 	if !eng.IsAlive(1, 1) {
 		t.Fatal("esperava que o modelo expusesse o engine injetado")
+	}
+}
+
+func TestUpdate_SpaceKey_TogglesPlaybackAndSchedulesTicks(t *testing.T) {
+	m := newTestModel()
+
+	m, cmd := send(m, keyMsg(" "))
+	if !m.Controls().IsPlaying() {
+		t.Fatal("esperava simulação tocando após a tecla de espaço")
+	}
+	if cmd == nil {
+		t.Fatal("esperava o agendamento do próximo tick")
+	}
+
+	m, cmd = send(m, keyMsg(" "))
+	if m.Controls().IsPlaying() {
+		t.Fatal("esperava simulação pausada após a segunda tecla de espaço")
+	}
+	if cmd != nil {
+		t.Fatal("esperava nenhum tick agendado com a simulação pausada")
+	}
+}
+
+func TestUpdate_TickMsg_AdvancesOnlyWhilePlayingAndOnCurrentEpoch(t *testing.T) {
+	eng := engine.NewEngine()
+	eng.PlaceCells([]engine.Coordinate{{X: 4, Y: 5}, {X: 5, Y: 5}, {X: 6, Y: 5}})
+	m := NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
+
+	m, _ = send(m, TickMsg{Epoch: 0})
+	if !eng.IsAlive(4, 5) {
+		t.Fatal("esperava grid intacto com a simulação pausada")
+	}
+
+	m, _ = send(m, keyMsg(" "))
+	m, _ = send(m, TickMsg{Epoch: 99})
+	if !eng.IsAlive(4, 5) {
+		t.Fatal("esperava que um tick de época antiga fosse descartado")
+	}
+
+	m, cmd := send(m, TickMsg{Epoch: 1})
+	if !eng.IsAlive(5, 4) || !eng.IsAlive(5, 6) {
+		t.Fatal("esperava uma geração aplicada pelo tick da época corrente")
+	}
+	if cmd == nil {
+		t.Fatal("esperava o reagendamento do próximo tick")
+	}
+}
+
+func TestUpdate_StepKey_AdvancesOneGenerationRegardlessOfPlayState(t *testing.T) {
+	for _, playing := range []bool{false, true} {
+		eng := engine.NewEngine()
+		eng.PlaceCells([]engine.Coordinate{{X: 4, Y: 5}, {X: 5, Y: 5}, {X: 6, Y: 5}})
+		m := NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
+		if playing {
+			m, _ = send(m, keyMsg(" "))
+		}
+
+		m, _ = send(m, keyMsg("n"))
+
+		if !eng.IsAlive(5, 4) || !eng.IsAlive(5, 5) || !eng.IsAlive(5, 6) {
+			t.Fatalf("tocando=%v: esperava exatamente uma geração aplicada", playing)
+		}
+		if eng.LiveCount() != 3 {
+			t.Fatalf("tocando=%v: esperava 3 células vivas, obteve %d", playing, eng.LiveCount())
+		}
+		if m.Controls().IsPlaying() != playing {
+			t.Fatalf("tocando=%v: esperava o estado de playback preservado", playing)
+		}
+	}
+}
+
+func TestUpdate_SpeedKeys_AdjustSpeedWithinRange(t *testing.T) {
+	m := newTestModel()
+
+	m, _ = send(m, keyMsg("+"))
+	if got := m.Controls().SpeedGPS(); got != controls.DefaultSpeedGPS+1 {
+		t.Fatalf("esperava velocidade %d, obteve %d", controls.DefaultSpeedGPS+1, got)
+	}
+
+	m, _ = send(m, keyMsg("-"))
+	m, _ = send(m, keyMsg("_"))
+	if got := m.Controls().SpeedGPS(); got != controls.DefaultSpeedGPS-1 {
+		t.Fatalf("esperava velocidade %d, obteve %d", controls.DefaultSpeedGPS-1, got)
+	}
+
+	for i := 0; i < 40; i++ {
+		m, _ = send(m, keyMsg("="))
+	}
+	if got := m.Controls().SpeedGPS(); got != controls.MaxSpeedGPS {
+		t.Fatalf("esperava velocidade máxima %d, obteve %d", controls.MaxSpeedGPS, got)
+	}
+
+	for i := 0; i < 40; i++ {
+		m, _ = send(m, keyMsg("-"))
+	}
+	if got := m.Controls().SpeedGPS(); got != controls.MinSpeedGPS {
+		t.Fatalf("esperava velocidade mínima %d, obteve %d", controls.MinSpeedGPS, got)
+	}
+}
+
+func TestUpdate_SpeedChangeWhilePlaying_ReschedulesWithoutPausing(t *testing.T) {
+	m := newTestModel()
+	m, _ = send(m, keyMsg(" "))
+
+	m, cmd := send(m, keyMsg("+"))
+
+	if !m.Controls().IsPlaying() {
+		t.Fatal("esperava simulação ainda tocando após mudar a velocidade")
+	}
+	if cmd == nil {
+		t.Fatal("esperava reagendamento imediato com o novo intervalo")
+	}
+
+	eng := m.Engine()
+	eng.SetCell(0, 0, true)
+	m, _ = send(m, TickMsg{Epoch: 1})
+	if eng.LiveCount() != 1 {
+		t.Fatal("esperava que o tick da época anterior fosse descartado")
+	}
+}
+
+func TestUpdate_ResetKey_ClearsGridAndPauses(t *testing.T) {
+	eng := engine.NewEngine()
+	eng.PlaceCells([]engine.Coordinate{{X: 4, Y: 5}, {X: 5, Y: 5}, {X: 6, Y: 5}})
+	m := NewModel(eng, camera.NewCamera(), controls.NewControls(eng))
+	m, _ = send(m, keyMsg(" "))
+
+	m, cmd := send(m, keyMsg("r"))
+
+	if eng.LiveCount() != 0 {
+		t.Fatalf("esperava grid vazio, obteve %d células vivas", eng.LiveCount())
+	}
+	if m.Controls().IsPlaying() {
+		t.Fatal("esperava simulação pausada após o reset")
+	}
+	if cmd != nil {
+		t.Fatal("esperava nenhum tick agendado após o reset")
+	}
+}
+
+func TestModel_ExposesInjectedControls(t *testing.T) {
+	eng := engine.NewEngine()
+	ctrl := controls.NewControls(eng)
+	m := NewModel(eng, camera.NewCamera(), ctrl)
+
+	m.Controls().Play()
+
+	if !ctrl.IsPlaying() {
+		t.Fatal("esperava que o modelo expusesse os controles injetados")
 	}
 }
