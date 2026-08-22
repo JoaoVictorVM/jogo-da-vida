@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/camera"
+	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/controls"
 	"github.com/JoaoVictorVM/jogo-da-vida/cli/internal/engine"
 )
 
@@ -12,19 +15,28 @@ const (
 	DefaultTerminalHeight = 24
 )
 
-type Model struct {
-	engine *engine.Engine
-	camera *camera.Camera
-	width  int
-	height int
+// TickMsg carrega a época em que o timer foi agendado, para que timers antigos sejam descartados
+// quando a velocidade muda ou a simulação é pausada.
+type TickMsg struct {
+	Epoch int
 }
 
-func NewModel(eng *engine.Engine, cam *camera.Camera) Model {
+type Model struct {
+	engine   *engine.Engine
+	camera   *camera.Camera
+	controls *controls.Controls
+	width    int
+	height   int
+	epoch    int
+}
+
+func NewModel(eng *engine.Engine, cam *camera.Camera, ctrl *controls.Controls) Model {
 	return Model{
-		engine: eng,
-		camera: cam,
-		width:  DefaultTerminalWidth,
-		height: DefaultTerminalHeight,
+		engine:   eng,
+		camera:   cam,
+		controls: ctrl,
+		width:    DefaultTerminalWidth,
+		height:   DefaultTerminalHeight,
 	}
 }
 
@@ -34,6 +46,10 @@ func (m Model) Camera() *camera.Camera {
 
 func (m Model) Engine() *engine.Engine {
 	return m.engine
+}
+
+func (m Model) Controls() *controls.Controls {
+	return m.controls
 }
 
 func (m Model) Init() tea.Cmd {
@@ -46,10 +62,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+	case TickMsg:
+		return m.handleTick(msg)
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+func (m Model) handleTick(msg TickMsg) (tea.Model, tea.Cmd) {
+	if msg.Epoch != m.epoch || !m.controls.IsPlaying() {
+		return m, nil
+	}
+
+	m.controls.Tick()
+	return m, m.scheduleTick()
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -68,6 +95,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.camera.ZoomIn()
 	case "i":
 		m.camera.ZoomOut()
+	case " ":
+		m.controls.TogglePlay()
+		return m.restartTimer()
+	case "n":
+		m.controls.Step()
+	case "+", "=":
+		m.controls.IncreaseSpeed()
+		return m.restartTimer()
+	case "-", "_":
+		m.controls.DecreaseSpeed()
+		return m.restartTimer()
+	case "r":
+		m.controls.Reset()
+		return m.restartTimer()
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	}
@@ -75,9 +116,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// restartTimer invalida o timer em curso e reagenda quando a simulação continua tocando, para que
+// mudanças de velocidade valham imediatamente sem acumular timers concorrentes.
+func (m Model) restartTimer() (tea.Model, tea.Cmd) {
+	m.epoch++
+	if !m.controls.IsPlaying() {
+		return m, nil
+	}
+	return m, m.scheduleTick()
+}
+
+func (m Model) scheduleTick() tea.Cmd {
+	epoch := m.epoch
+	return tea.Tick(m.controls.TickInterval(), func(time.Time) tea.Msg {
+		return TickMsg{Epoch: epoch}
+	})
+}
+
 func (m Model) View() string {
 	grid := Viewport(m.engine, m.camera, m.width, m.height)
-	status := Line(m.camera, m.width)
+	status := Line(m.camera, m.controls, m.width)
 
 	if grid == "" {
 		return status
