@@ -1,19 +1,25 @@
 import { randomFill, regionFromBounds } from './actions';
 import { FiniteGridEngine } from './engine';
 import type { GridEngine } from './engine';
+import { DrawingController } from './drawing';
 import { Camera, CanvasInputController, CanvasRenderer, RenderSettings } from './rendering';
 import { SimulationController, SimulationControlsView } from './simulation';
 
 const DEFAULT_GRID_DIMENSIONS = { width: 100, height: 100 };
 
-function resizeCanvasToViewport(canvas: HTMLCanvasElement, camera: Camera): void {
+function resizeCanvasToViewport(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+): void {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const ratio = window.devicePixelRatio || 1;
 
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
-  camera.setViewportSize({ width: canvas.width, height: canvas.height });
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  camera.setViewportSize({ width, height });
 }
 
 function createRandomFillButton(engine: GridEngine, camera: Camera): HTMLButtonElement {
@@ -51,7 +57,10 @@ function bootstrap(): void {
   const renderer = new CanvasRenderer(ctx, settings);
   const simulation = new SimulationController(engine);
 
-  new CanvasInputController(canvas, camera);
+  const inputController = new CanvasInputController(canvas, camera);
+  new DrawingController(canvas, camera, engine, inputController, {
+    isDrawingAllowed: () => !simulation.isPlaying(),
+  });
 
   const controlsContainer = document.getElementById('simulation-controls');
   if (controlsContainer === null) {
@@ -62,9 +71,9 @@ function bootstrap(): void {
   const randomFillButton = createRandomFillButton(engine, camera);
   controlsContainer.querySelector('.simulation-controls')?.appendChild(randomFillButton);
 
-  resizeCanvasToViewport(canvas, camera);
+  resizeCanvasToViewport(canvas, ctx, camera);
   camera.fitToFiniteGrid(DEFAULT_GRID_DIMENSIONS);
-  window.addEventListener('resize', () => resizeCanvasToViewport(canvas, camera));
+  window.addEventListener('resize', () => resizeCanvasToViewport(canvas, ctx, camera));
 
   const renderFrame = (): void => {
     randomFillButton.disabled = simulation.isPlaying();
